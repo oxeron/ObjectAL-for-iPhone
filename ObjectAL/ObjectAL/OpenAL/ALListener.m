@@ -29,6 +29,7 @@
 
 #import "ALListener.h"
 #import "ObjectALMacros.h"
+#import "ARCSafe_MemMgmt.h"
 #import "ALWrapper.h"
 #import "ALContext.h"
 
@@ -48,7 +49,7 @@
 
 + (id) listenerForContext:(ALContext*) context
 {
-	return [[self alloc] initWithContext:context];
+	return as_autorelease([[self alloc] initWithContext:context]);
 }
 
 - (id) initWithContext:(ALContext*) contextIn
@@ -58,7 +59,7 @@
         if(contextIn == nil)
         {
             OAL_LOG_ERROR(@"%@: Could not init listener: Context is nil", self);
-            return nil;
+            goto initFailed;
         }
 		suspendHandler = [[OALSuspendHandler alloc] initWithTarget:nil selector:nil];
 
@@ -66,6 +67,16 @@
 		gain = 1.0f;
 	}
 	return self;
+
+initFailed:
+    as_release(self);
+    return nil;
+}
+
+- (void) dealloc
+{
+	as_release(suspendHandler);
+	as_superdealloc();
 }
 
 #pragma mark Properties
@@ -79,7 +90,7 @@
 
 - (void) setMuted:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -100,7 +111,7 @@
 
 - (void) setGain:(float) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -120,7 +131,7 @@
 - (ALOrientation) orientation
 {
 	ALOrientation result;
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[ALWrapper getListenerfv:AL_ORIENTATION values:(float*)&result];
 	}
@@ -129,7 +140,7 @@
 
 - (void) setOrientation:(ALOrientation) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -144,7 +155,7 @@
 - (ALPoint) position
 {
 	ALPoint result;
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[ALWrapper getListener3f:AL_POSITION v1:&result.x v2:&result.y v3:&result.z];
 	}
@@ -153,7 +164,7 @@
 
 - (void) setPosition:(ALPoint) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -168,7 +179,7 @@
 - (ALVector) velocity
 {
 	ALVector result;
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[ALWrapper getListener3f:AL_VELOCITY v1:&result.x v2:&result.y v3:&result.z];
 	}
@@ -177,7 +188,7 @@
 
 - (void) setVelocity:(ALVector) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -191,7 +202,7 @@
 
 - (bool) reverbOn
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         return [ALWrapper asaGetListenerb:ALC_ASA_REVERB_ON];
 	}
@@ -199,7 +210,7 @@
 
 - (void) setReverbOn:(bool) reverbOn
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -213,7 +224,7 @@
 
 - (float) globalReverbLevel
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         return [ALWrapper asaGetListenerf:ALC_ASA_REVERB_GLOBAL_LEVEL];
 	}
@@ -221,7 +232,7 @@
 
 - (void) setGlobalReverbLevel:(float) globalReverbLevel
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -235,7 +246,7 @@
 
 - (int) reverbRoomType
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         return [ALWrapper asaGetListeneri:ALC_ASA_REVERB_ROOM_TYPE];
 	}
@@ -243,7 +254,7 @@
 
 - (void) setReverbRoomType:(int) reverbRoomType
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -257,7 +268,7 @@
 
 - (float) reverbEQGain
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         return [ALWrapper asaGetListenerf:ALC_ASA_REVERB_EQ_GAIN];
 	}
@@ -265,7 +276,7 @@
 
 - (void) setReverbEQGain:(float) reverbEQGain
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -279,7 +290,7 @@
 
 - (float) reverbEQBandwidth
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         return [ALWrapper asaGetListenerf:ALC_ASA_REVERB_EQ_BANDWITH];
 	}
@@ -287,7 +298,7 @@
 
 - (void) setReverbEQBandwidth:(float) reverbEQBandwidth
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -301,7 +312,7 @@
 
 - (float) reverbEQFrequency
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         return [ALWrapper asaGetListenerf:ALC_ASA_REVERB_EQ_FREQ];
 	}
@@ -309,7 +320,7 @@
 
 - (void) setReverbEQFrequency:(float) reverbEQFrequency
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{

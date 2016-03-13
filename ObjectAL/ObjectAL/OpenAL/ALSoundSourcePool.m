@@ -29,6 +29,7 @@
 
 #import "ALSoundSourcePool.h"
 #import "ObjectALMacros.h"
+#import "ARCSafe_MemMgmt.h"
 
 
 #pragma mark Private Methods
@@ -56,7 +57,7 @@
 
 + (id) pool
 {
-	return [[self alloc] init];
+	return as_autorelease([[self alloc] init]);
 }
 
 - (id) init
@@ -69,6 +70,13 @@
 	return self;
 }
 
+- (void) dealloc
+{
+	OAL_LOG_DEBUG(@"%@: Dealloc", self);
+	as_release(sources);
+	as_superdealloc();
+}
+
 
 #pragma mark Properties
 
@@ -79,7 +87,7 @@
 
 - (void) addSource:(id<ALSoundSource>) source
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[sources addObject:source];
 	}
@@ -87,7 +95,7 @@
 
 - (void) removeSource:(id<ALSoundSource>) source
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[sources removeObject:source];
 	}
@@ -95,11 +103,12 @@
 
 - (void) moveToHead:(int) index
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
-		id source = [sources objectAtIndex:(NSUInteger)index];
+		id source = as_retain([sources objectAtIndex:(NSUInteger)index]);
 		[sources removeObjectAtIndex:(NSUInteger)index];
 		[sources addObject:source];
+		as_release(source);
 	}
 }
 
@@ -107,7 +116,7 @@
 {
 	int index = 0;
 	
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		// Try to find any free source.
 		for(id<ALSoundSource> source in sources)

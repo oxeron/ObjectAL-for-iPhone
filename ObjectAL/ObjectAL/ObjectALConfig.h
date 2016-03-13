@@ -52,6 +52,18 @@
 #endif
 
 
+/** Enables support for methods that take blocks as arguments.
+ * Blocks are only supported in iOS 4.0+, so enabling this will make your project
+ * incompatible with earlier operating systems (a 3.x system will crash the moment it
+ * encounters a class that supports blocks).
+ *
+ * Recommended setting: 0 if you want to support iOS prior to 4.0, 1 if you don't care.
+ */
+#ifndef OBJECTAL_CFG_USE_BLOCKS
+#define OBJECTAL_CFG_USE_BLOCKS 1
+#endif
+
+
 /** Determines how ObjectAL's actions are implemented.
  * If this is set to 1, ObjectAL's actions will inherit from cocos2d CCIntervalAction,
  * and will use cocos2d's CCActionManager rather than OALActionManager. <br>
@@ -80,6 +92,20 @@
  */
 #ifndef kActionStepInterval
 #define kActionStepInterval (1.0/30.0)
+#endif
+
+
+/** When this option is enabled, all critical ObjectAL operations will be wrapped in
+ * synchronized blocks. <br>
+ *
+ * Turning this off can improve performance a bit if your application makes heavy
+ * use of audio calls, but you'll be on your own for ensuring two threads don't
+ * access the same part of the audio library at the same time. <br>
+ *
+ * Recommended setting: 1
+ */
+#ifndef OBJECTAL_CFG_SYNCHRONIZED_OPERATIONS
+#define OBJECTAL_CFG_SYNCHRONIZED_OPERATIONS 1
 #endif
 
 

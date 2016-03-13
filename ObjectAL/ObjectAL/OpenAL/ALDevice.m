@@ -30,6 +30,7 @@
 #import "ALDevice.h"
 #import "NSMutableArray+WeakReferences.h"
 #import "ObjectALMacros.h"
+#import "ARCSafe_MemMgmt.h"
 #import "ALWrapper.h"
 #import "OpenALManager.h"
 
@@ -40,7 +41,7 @@
 
 + (id) deviceWithDeviceSpecifier:(NSString*) deviceSpecifier
 {
-	return [[self alloc] initWithDeviceSpecifier:deviceSpecifier];
+	return as_autorelease([[self alloc] initWithDeviceSpecifier:deviceSpecifier]);
 }
 
 - (id) initWithDeviceSpecifier:(NSString*) deviceSpecifier
@@ -60,10 +61,14 @@
 		if(nil == device)
 		{
 			OAL_LOG_ERROR(@"%@: Failed to create OpenAL device %@", self, deviceSpecifier);
-            return nil;
+            goto initFailed;
 		}
 	}
 	return self;
+
+initFailed:
+    as_release(self);
+    return nil;
 }
 
 - (void) dealloc
@@ -74,6 +79,10 @@
 	[[OpenALManager sharedInstance] notifyDeviceDeallocating:self];
 
     [ALWrapper closeDevice:device];
+	
+	as_release(contexts);
+	as_release(suspendHandler);
+	as_superdealloc();
 }
 
 
@@ -153,7 +162,7 @@
 
 - (void) clearBuffers
 {
-	@synchronized(contexts)
+	OPTIONALLY_SYNCHRONIZED(contexts)
 	{
 		for(ALContext* context in contexts)
 		{
@@ -167,7 +176,7 @@
 
 - (void) notifyContextInitializing:(ALContext*) context
 {
-	@synchronized(contexts)
+	OPTIONALLY_SYNCHRONIZED(contexts)
 	{
 		[contexts addObject:context];
 	}
@@ -175,7 +184,7 @@
 
 - (void) notifyContextDeallocating:(ALContext*) context
 {
-	@synchronized(contexts)
+	OPTIONALLY_SYNCHRONIZED(contexts)
 	{
 		if([OpenALManager sharedInstance].currentContext == context)
 		{

@@ -33,6 +33,7 @@
 #import "OALTools.h"
 #import "OALUtilityActions.h"
 #import "ObjectALMacros.h"
+#import "ARCSafe_MemMgmt.h"
 
 #pragma mark Asynchronous Operations
 
@@ -80,20 +81,27 @@
 
 + (id) operationWithTrack:(OALAudioTrack*) track url:(NSURL*) url seekTime:(NSTimeInterval)seekTime target:(id) target selector:(SEL) selector
 {
-	return [[self alloc] initWithTrack:track url:url seekTime:seekTime target:target selector:selector];
+	return as_autorelease([[self alloc] initWithTrack:track url:url seekTime:seekTime target:target selector:selector]);
 }
 
 - (id) initWithTrack:(OALAudioTrack*) track url:(NSURL*) urlIn seekTime:(NSTimeInterval)seekTimeIn target:(id) targetIn selector:(SEL) selectorIn
 {
 	if(nil != (self = [super init]))
 	{
-		audioTrack = track;
-		url = urlIn;
+		audioTrack = as_retain(track);
+		url = as_retain(urlIn);
 		seekTime = seekTimeIn;
 		target = targetIn;
 		selector = selectorIn;
 	}
 	return self;
+}
+
+- (void) dealloc
+{
+	as_release(audioTrack);
+	as_release(url);
+    as_superdealloc();
 }
 
 @end
@@ -139,7 +147,7 @@
 
 + (id) operationWithTrack:(OALAudioTrack*) track url:(NSURL*) url loops:(NSInteger) loops target:(id) target selector:(SEL) selector
 {
-	return [[self alloc] initWithTrack:track url:url loops:loops target:target selector:selector];
+	return as_autorelease([[self alloc] initWithTrack:track url:url loops:loops target:target selector:selector]);
 }
 
 - (id) initWithTrack:(OALAudioTrack*) track url:(NSURL*) urlIn loops:(NSInteger) loopsIn target:(id) targetIn selector:(SEL) selectorIn
@@ -209,7 +217,7 @@
 
 + (id) track
 {
-	return [[self alloc] init];
+	return as_autorelease([[self alloc] init]);
 }
 
 - (id) init
@@ -241,8 +249,16 @@
     player.delegate = nil;
     [player stop];
 
+	as_release(player);
+	as_release(operationQueue);
+	as_release(currentlyLoadedUrl);
+	as_release(simulatorPlayerRef);
 	[gainAction stopAction];
+	as_release(gainAction);
 	[panAction stopAction];
+	as_release(panAction);
+	as_release(suspendHandler);
+	as_superdealloc();
 }
 
 
@@ -276,7 +292,7 @@
 
 - (void) setPan:(float) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         pan = value;
         player.pan = pan;
@@ -300,7 +316,7 @@
 
 - (void) setGain:(float) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		gain = value;
 		if(muted)
@@ -318,7 +334,7 @@
 
 - (void) setMuted:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		muted = value;
 		if(muted)
@@ -337,7 +353,7 @@
 
 - (void) setNumberOfLoops:(NSInteger) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		player.numberOfLoops = numberOfLoops = value;
 	}
@@ -350,7 +366,7 @@
 
 - (void) setPaused:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(paused != value)
 		{
@@ -385,7 +401,7 @@
 
 - (NSTimeInterval) currentTime
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return (nil == player) ? currentTime : player.currentTime;
 	}
@@ -393,7 +409,7 @@
 
 - (void) setCurrentTime:(NSTimeInterval) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		currentTime = value;
 		if(nil != player)
@@ -405,7 +421,7 @@
 
 - (NSTimeInterval) deviceCurrentTime
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         return player.deviceCurrentTime;
 	}
@@ -413,7 +429,7 @@
 
 - (NSTimeInterval) duration
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return player.duration;
 	}
@@ -421,7 +437,7 @@
 
 - (NSUInteger) numberOfChannels
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return player.numberOfChannels;
 	}
@@ -477,7 +493,7 @@
 	 *
 	 * TODO: Need to find a way to avoid this situation.
 	 */
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         if(value)
         {
@@ -495,11 +511,13 @@
             if(preloaded)
             {
                 NSError* error;
+                as_release(player);
                 player = [[AVAudioPlayer alloc] initWithContentsOfURL:currentlyLoadedUrl error:&error];
                 if(nil == player)
                 {
                     OAL_LOG_ERROR(@"%@: Could not reload URL %@: %@",
                                   self, currentlyLoadedUrl, [error localizedDescription]);
+                    as_release(player);
                     player = nil;
                     preloaded = NO;
                     playing = NO;
@@ -518,6 +536,7 @@
                 if(![player prepareToPlay])
                 {
                     OAL_LOG_ERROR(@"%@: Failed to prepareToPlay on resume: %@", self, currentlyLoadedUrl);
+                    as_release(player);
                     player = nil;
                     preloaded = NO;
                     playing = NO;
@@ -574,7 +593,7 @@
 		return NO;
 	}
 	
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		// Bug: No longer re-using AVAudioPlayer because of bugs when using multiple players.
 		// Playing two tracks, then stopping one and starting it again will cause prepareToPlay to fail.
@@ -587,6 +606,8 @@
 		{
 			[player stop];
 		}
+
+		as_release(player);
 
 		if(wasPlaying)
 		{
@@ -607,7 +628,8 @@
 		player.delegate = self;
         player.pan = pan;
 
-		currentlyLoadedUrl = url;
+		as_release(currentlyLoadedUrl);
+		currentlyLoadedUrl = as_retain(url);
 		
 		self.currentTime = seekTime;
 		playing = NO;
@@ -644,7 +666,7 @@
 
 - (bool) preloadUrlAsync:(NSURL*) url seekTime:(NSTimeInterval)seekTime target:(id) target selector:(SEL) selector
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[operationQueue addOperation:[OAL_AsyncAudioTrackPreloadOperation operationWithTrack:self url:url seekTime:seekTime target:target selector:selector]];
 		return NO;
@@ -668,7 +690,7 @@
 
 - (bool) playUrl:(NSURL*) url loops:(NSInteger) loops
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if([self preloadUrl:url])
 		{
@@ -711,7 +733,7 @@
 
 - (bool) play
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[self stopActions];
         [player stop];
@@ -732,7 +754,7 @@
 
 - (bool) playAtTime:(NSTimeInterval) time
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         [self stopActions];
         [player stop];
@@ -764,7 +786,7 @@
 
 - (void) stop
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[self stopActions];
 		[player stop];
@@ -801,6 +823,7 @@
                       [OALPropertyAction gainActionWithDuration:duration endValue:value],
                       [OALCallAction actionWithCallTarget:target selector:selector withObject:self],
                       nil];
+        gainAction = as_retain(gainAction);
 		[gainAction runWithTarget:self];
 	}
 }
@@ -811,6 +834,7 @@
 	@synchronized(self)
 	{
 		[gainAction stopAction];
+		as_release(gainAction);
 		gainAction = nil;
 	}
 }
@@ -828,6 +852,7 @@
                      [OALPropertyAction panActionWithDuration:duration endValue:value],
                      [OALCallAction actionWithCallTarget:target selector:selector withObject:self],
                      nil];
+        panAction = as_retain(panAction);
         [panAction runWithTarget:self];
     }
 }
@@ -838,18 +863,21 @@
     @synchronized(self)
     {
         [panAction stopAction];
+        as_release(panAction);
         panAction = nil;
     }
 }
 
 - (void) clear
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[self stopActions];
+		as_release(currentlyLoadedUrl);
 		currentlyLoadedUrl = nil;
 		
 		[player stop];
+		as_release(player);
 		player = nil;
 		playing = NO;
 		paused = NO;
@@ -874,7 +902,7 @@
 
 - (void) setMeteringEnabled:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		meteringEnabled = value;
 		player.meteringEnabled = meteringEnabled;
@@ -888,7 +916,7 @@
 
 - (float) averagePowerForChannel:(NSUInteger)channelNumber
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return [player averagePowerForChannel:channelNumber];
 	}
@@ -896,7 +924,7 @@
 
 - (float) peakPowerForChannel:(NSUInteger)channelNumber
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return [player peakPowerForChannel:channelNumber];
 	}
@@ -905,6 +933,45 @@
 
 #pragma mark -
 #pragma mark AVAudioPlayerDelegate
+
+#if TARGET_OS_IPHONE
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
+- (void) audioPlayerBeginInterruption:(AVAudioPlayer*) playerIn
+{
+	if([delegate respondsToSelector:@selector(audioPlayerBeginInterruption:)])
+	{
+		[delegate audioPlayerBeginInterruption:playerIn];
+	}
+}
+
+- (void)audioPlayerEndInterruption:(AVAudioPlayer *)playerIn withOptions:(NSUInteger)flags
+{
+	if([delegate respondsToSelector:@selector(audioPlayerEndInterruption:withOptions:)])
+	{
+		[delegate audioPlayerEndInterruption:playerIn withOptions:flags];
+	}
+}
+#pragma clang diagnostic pop
+
+#if __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_6_0
+- (void)audioPlayerEndInterruption:(AVAudioPlayer *)playerIn withFlags:(NSUInteger)flags
+{
+	if([delegate respondsToSelector:@selector(audioPlayerEndInterruption:withFlags:)])
+	{
+		[delegate audioPlayerEndInterruption:playerIn withFlags:flags];
+	}
+}
+
+- (void) audioPlayerEndInterruption:(AVAudioPlayer*) playerIn
+{
+	if([delegate respondsToSelector:@selector(audioPlayerEndInterruption:)])
+	{
+		[delegate audioPlayerEndInterruption:playerIn];
+	}
+}
+#endif // __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_6_0
+#endif // TARGET_OS_IPHONE
 
 - (void) audioPlayerDecodeErrorDidOccur:(AVAudioPlayer*) playerIn error:(NSError*) error
 {
@@ -916,7 +983,7 @@
 
 - (void) audioPlayerDidFinishPlaying:(AVAudioPlayer*) playerIn successfully:(BOOL) flag
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		playing = NO;
 		paused = NO;

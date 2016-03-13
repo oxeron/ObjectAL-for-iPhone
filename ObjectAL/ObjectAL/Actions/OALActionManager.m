@@ -30,12 +30,15 @@
 #import "OALActionManager.h"
 #import "mach_timing.h"
 #import "ObjectALMacros.h"
+#import "ARCSafe_MemMgmt.h"
 #import "NSMutableArray+WeakReferences.h"
 #ifdef __IPHONE_OS_VERSION_MAX_ALLOWED
 #import <UIKit/UIKit.h>
 #endif
 
 #if !OBJECTAL_CFG_USE_COCOS2D_ACTIONS
+
+SYNTHESIZE_SINGLETON_FOR_CLASS_PROTOTYPE(OALActionManager);
 
 /** \cond */
 /**
@@ -57,14 +60,7 @@
 
 #pragma mark Object Management
 
-+ (OALActionManager*)sharedInstance {
-    static OALActionManager *shared = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        shared = [[self alloc] init];
-    });
-    return shared;
-}
+SYNTHESIZE_SINGLETON_FOR_CLASS(OALActionManager);
 
 - (id) init
 {
@@ -96,10 +92,16 @@
 - (void) dealloc
 {
 	[[NSNotificationCenter defaultCenter] removeObserver:self];
+	as_release(targets);
+	as_release(targetActions);
+	as_release(actionsToAdd);
+	as_release(actionsToRemove);
+	as_superdealloc();
 }
 
-- (void) doResetTimeDelta:(__unused NSNotification*) notification
+- (void) doResetTimeDelta:(NSNotification*) notification
 {
+    #pragma unused(notification)
 	lastTimestamp = 0;
 }
 
@@ -108,7 +110,7 @@
 
 - (void) stopAllActions
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		for(NSMutableArray* actions in targetActions)
 		{
@@ -122,9 +124,10 @@
 
 #pragma mark Timer Interface
 
-- (void) step:(__unused NSTimer*) timer
+- (void) step:(NSTimer*) timer
 {
-	@synchronized(self)
+    #pragma unused(timer)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		// Add new actions
 		for(OALAction* action in actionsToAdd)
@@ -214,7 +217,7 @@
 
 - (void) notifyActionStarted:(OALAction*) action
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[actionsToAdd addObject:action];
 		
@@ -235,7 +238,7 @@
 
 - (void) notifyActionStopped:(OALAction*) action
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[actionsToRemove addObject:action];
 	}

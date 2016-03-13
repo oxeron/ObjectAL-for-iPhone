@@ -31,6 +31,7 @@
 #import "OALAction+Private.h"
 #import "OALActionManager.h"
 #import "ObjectALMacros.h"
+#import "ARCSafe_MemMgmt.h"
 #import <objc/message.h>
 
 
@@ -103,8 +104,9 @@
 	self.elapsed = 0;
 }
 
-- (void) updateCompletion:(__unused float) proportionComplete
+- (void) updateCompletion:(float) proportionComplete
 {
+    #pragma unused(proportionComplete)
 	// Subclasses will override this.
 }
 
@@ -163,12 +165,14 @@
 	[[CCActionManager sharedManager] removeAction:self];
 }
 
-- (void) prepareWithTarget:(__unused id) target
+- (void) prepareWithTarget:(id) target
 {
+    #pragma unused(target)
 }
 
-- (void) updateCompletion:(__unused float) proportionComplete
+- (void) updateCompletion:(float) proportionComplete
 {
+    #pragma unused(proportionComplete)
 }
 
 - (void) setTarget:(id)target
@@ -228,9 +232,9 @@
               propertyKey:(NSString*) propertyKey
 				 endValue:(float) endValue
 {
-    return [[self alloc] initWithDuration:duration
-                              propertyKey:propertyKey
-                                 endValue:endValue];
+	return as_autorelease([[self alloc] initWithDuration:duration
+                                             propertyKey:propertyKey
+                                                endValue:endValue]);
 }
 
 + (id) actionWithDuration:(float) duration
@@ -238,10 +242,10 @@
 			   startValue:(float) startValue
 				 endValue:(float) endValue
 {
-    return [[self alloc] initWithDuration:duration
-                              propertyKey:propertyKey
-                               startValue:startValue
-                                 endValue:endValue];
+	return as_autorelease([[self alloc] initWithDuration:duration
+                                             propertyKey:propertyKey
+                                              startValue:startValue
+                                                endValue:endValue]);
 }
 
 - (id) initWithDuration:(float) duration
@@ -382,9 +386,9 @@ static EaseFunctionPtr g_easeFunctions[2][3] =
                              phase:(OALEasePhase) phase
                             action:(OALAction*) action
 {
-    return [[self alloc] initWithShape:shape
-                                 phase:phase
-                                action:action];
+    return as_autorelease([[self alloc] initWithShape:shape
+                                                phase:phase
+                                               action:action]);
 }
 
 - (id) initWithShape:(OALEaseShape) shape
@@ -397,6 +401,12 @@ static EaseFunctionPtr g_easeFunctions[2][3] =
         self.action = action;
     }
     return self;
+}
+
+- (void) dealloc
+{
+    as_release(action_);
+    as_superdealloc();
 }
 
 - (void) prepareWithTarget:(id) target

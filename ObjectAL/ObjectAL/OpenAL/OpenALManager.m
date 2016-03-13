@@ -30,6 +30,7 @@
 #import "OpenALManager.h"
 #import "NSMutableArray+WeakReferences.h"
 #import "ObjectALMacros.h"
+#import "ARCSafe_MemMgmt.h"
 #import "ALWrapper.h"
 #import "ALDevice.h"
 #import "OALAudioSession.h"
@@ -90,10 +91,10 @@
 				 target:(id) target
 			   selector:(SEL) selector
 {
-    return [[self alloc] initWithUrl:url
-                        reduceToMono:reduceToMono
-                              target:target
-                            selector:selector];
+	return as_autorelease([[self alloc] initWithUrl:url
+                                            reduceToMono:reduceToMono
+                                                  target:target
+                                                selector:selector]);
 }
 
 - (id) initWithUrl:(NSURL*) urlIn
@@ -103,12 +104,18 @@
 {
 	if(nil != (self = [super init]))
 	{
-		url = urlIn;
+		url = as_retain(urlIn);
 		reduceToMono = reduceToMonoIn;
 		target = targetIn;
 		selector = selectorIn;
 	}
 	return self;
+}
+
+- (void) dealloc
+{
+	as_release(url);
+	as_superdealloc();
 }
 
 - (void)main
@@ -122,6 +129,8 @@
 
 #pragma mark -
 #pragma mark Private Methods
+
+SYNTHESIZE_SINGLETON_FOR_CLASS_PROTOTYPE(OpenALManager);
 
 /**
  * (INTERNAL USE) Private methods for OpenALManager.
@@ -149,14 +158,7 @@
 
 #pragma mark Object Management
 
-+ (OpenALManager*)sharedInstance {
-    static OpenALManager *shared = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        shared = [[self alloc] init];
-    });
-    return shared;
-}
+SYNTHESIZE_SINGLETON_FOR_CLASS(OpenALManager);
 
 @synthesize realCurrentContext;
 
@@ -181,6 +183,11 @@
 {
 	OAL_LOG_DEBUG(@"%@: Dealloc", self);
 	[[OALAudioSession sharedInstance] removeSuspendListener:self];
+
+	as_release(operationQueue);
+	as_release(suspendHandler);
+	as_release(devices);
+	as_superdealloc();
 }
 
 
@@ -198,7 +205,7 @@
 
 - (ALContext*) currentContext
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return self.realCurrentContext;
 	}
@@ -206,7 +213,7 @@
 
 - (void) setCurrentContext:(ALContext *) context
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -234,7 +241,7 @@
 
 - (ALdouble) mixerOutputFrequency
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return [ALWrapper getMixerOutputDataRate];
 	}
@@ -242,7 +249,7 @@
 
 - (void) setMixerOutputFrequency:(ALdouble) frequency
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -256,7 +263,7 @@
 
 - (ALint) renderingQuality
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return [ALWrapper getRenderingQuality];
 	}
@@ -264,7 +271,7 @@
 
 - (void) setRenderingQuality:(ALint) renderingQuality
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -388,7 +395,7 @@
 						  target:(id) target
 						selector:(SEL) selector
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[operationQueue addOperation:
 		 [OAL_AsyncALBufferLoadOperation operationWithUrl:url
@@ -404,7 +411,7 @@
 
 - (void) clearAllBuffers
 {
-	@synchronized(devices)
+	OPTIONALLY_SYNCHRONIZED(devices)
 	{
 		for(ALDevice* device in devices)
 		{
@@ -417,7 +424,7 @@
 
 - (void) notifyDeviceInitializing:(ALDevice*) device
 {
-	@synchronized(devices)
+	OPTIONALLY_SYNCHRONIZED(devices)
 	{
 		[devices addObject:device];
 	}
@@ -425,7 +432,7 @@
 
 - (void) notifyDeviceDeallocating:(ALDevice*) device
 {
-	@synchronized(devices)
+	OPTIONALLY_SYNCHRONIZED(devices)
 	{
 		[devices removeObject:device];
 	}

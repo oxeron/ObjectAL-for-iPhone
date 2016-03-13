@@ -7,12 +7,20 @@
 #import "NSMutableArray+WeakReferences.h"
 
 
+#if __has_feature(objc_arc)
+    #define as_autorelease(X)        (X)
+    #define as_bridge_transfer       __bridge_transfer
+#else
+    #define as_autorelease(X)       [(X) autorelease]
+    #define as_bridge_transfer
+#endif
+
 @implementation NSMutableArray (WeakReferences)
 
 + (id) newMutableArrayUsingWeakReferencesWithCapacity:(NSUInteger) capacity
 {
 	CFArrayCallBacks callbacks = {0, NULL, NULL, CFCopyDescription, CFEqual};
-	return (__bridge_transfer id)CFArrayCreateMutable(NULL,
+	return (as_bridge_transfer id)CFArrayCreateMutable(NULL,
                                                        (CFIndex)capacity,
                                                        &callbacks);
 }
@@ -24,7 +32,7 @@
 
 + (id) mutableArrayUsingWeakReferencesWithCapacity:(NSUInteger) capacity
 {
-    return [self newMutableArrayUsingWeakReferencesWithCapacity:capacity];
+    return as_autorelease([self newMutableArrayUsingWeakReferencesWithCapacity:capacity]);
 }
 
 + (id) mutableArrayUsingWeakReferences

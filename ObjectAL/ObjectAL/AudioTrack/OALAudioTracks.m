@@ -28,7 +28,11 @@
 #import "OALAudioTracks.h"
 #import "NSMutableArray+WeakReferences.h"
 #import "ObjectALMacros.h"
+#import "ARCSafe_MemMgmt.h"
 #import "OALAudioSession.h"
+
+
+SYNTHESIZE_SINGLETON_FOR_CLASS_PROTOTYPE(OALAudioTracks);
 
 
 /** \cond */
@@ -53,14 +57,7 @@
 
 #pragma mark Object Management
 
-+ (OALAudioTracks*)sharedInstance {
-    static OALAudioTracks *shared = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        shared = [[self alloc] init];
-    });
-    return shared;
-}
+SYNTHESIZE_SINGLETON_FOR_CLASS(OALAudioTracks);
 
 - (id) init
 {
@@ -90,6 +87,10 @@
 	OAL_LOG_DEBUG(@"%@: Dealloc", self);
 	[[OALAudioSession sharedInstance] removeSuspendListener:self];
     [deviceTimePoller invalidate];
+
+	as_release(tracks);
+	as_release(suspendHandler);
+	as_superdealloc();
 }
 
 
@@ -104,7 +105,7 @@
 
 - (void) setPaused:(bool) value
 {
-	@synchronized(tracks)
+	OPTIONALLY_SYNCHRONIZED(tracks)
 	{
 		if(self.suspended)
 		{
@@ -127,7 +128,7 @@
 
 - (void) setMuted:(bool) value
 {
-	@synchronized(tracks)
+	OPTIONALLY_SYNCHRONIZED(tracks)
 	{
 		if(self.suspended)
 		{

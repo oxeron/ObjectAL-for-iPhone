@@ -29,6 +29,7 @@
 
 #import "OALSimpleAudio.h"
 #import "ObjectALMacros.h"
+#import "ARCSafe_MemMgmt.h"
 #import "OALAudioSession.h"
 #import "OpenALManager.h"
 
@@ -37,6 +38,8 @@
 
 #pragma mark -
 #pragma mark Private Methods
+
+SYNTHESIZE_SINGLETON_FOR_CLASS_PROTOTYPE(OALSimpleAudio);
 
 /** \cond */
 /**
@@ -63,36 +66,23 @@
 
 #pragma mark Object Management
 
-static OALSimpleAudio *g_sharedInstance = nil;
-static dispatch_once_t g_onceToken;
-static void purgeSharedInstance()
-{
-    g_sharedInstance = nil;
-    g_onceToken = 0;
-}
-
-+ (OALSimpleAudio*)sharedInstance {
-    dispatch_once(&g_onceToken, ^{
-        g_sharedInstance = [[self alloc] init];
-    });
-    return g_sharedInstance;
-}
+SYNTHESIZE_SINGLETON_FOR_CLASS(OALSimpleAudio);
 
 @synthesize device;
 @synthesize context;
 
 + (OALSimpleAudio*) sharedInstanceWithSources:(int) sources
 {
-	return [[self alloc] initWithSources:sources];
+	return as_autorelease([[self alloc] initWithSources:sources]);
 }
 
 + (OALSimpleAudio*) sharedInstanceWithReservedSources:(int) reservedSources
                                           monoSources:(int) monoSources
                                         stereoSources:(int) stereoSources
 {
-    return [[self alloc] initWithReservedSources:reservedSources
-                                     monoSources:monoSources
-                                   stereoSources:stereoSources];
+    return as_autorelease([[self alloc] initWithReservedSources:reservedSources
+                                                    monoSources:monoSources
+                                                  stereoSources:stereoSources]);
 }
 
 - (id) init
@@ -107,7 +97,9 @@ static void purgeSharedInstance()
 
     backgroundTrack = [[OALAudioTrack alloc] init];
 
+#if NS_BLOCKS_AVAILABLE && OBJECTAL_CFG_USE_BLOCKS
     oal_dispatch_queue	= dispatch_queue_create("objectal.simpleaudio.queue", NULL);
+#endif
     pendingLoadCount	= 0;
 
     self.preloadCacheEnabled = YES;
@@ -145,7 +137,7 @@ static void purgeSharedInstance()
 	return self;
 
 initFailed:
-    purgeSharedInstance();
+    [[self class] purgeSharedInstance];
     return nil;
 }
 
@@ -171,21 +163,34 @@ initFailed:
 	return self;
 
 initFailed:
-    purgeSharedInstance();
+    [[self class] purgeSharedInstance];
     return nil;
 }
 
 - (void) dealloc
 {
 	OAL_LOG_DEBUG(@"%@: Dealloc", self);
+#if NS_BLOCKS_AVAILABLE && OBJECTAL_CFG_USE_BLOCKS && !__has_feature(objc_arc)
+    if(oal_dispatch_queue != nil)
+    {
+        dispatch_release(oal_dispatch_queue);
+    }
+#endif
+
+	as_release(backgroundTrack);
 	[channel stop];
+	as_release(channel);
+	as_release(context);
+	as_release(device);
+	as_release(preloadCache);
+	as_superdealloc();
 }
 
 #pragma mark Properties
 
 - (NSUInteger) preloadCacheCount
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return [preloadCache count];
 	}
@@ -198,7 +203,7 @@ initFailed:
 
 - (void) setPreloadCacheEnabled:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(value != self.preloadCacheEnabled)
 		{
@@ -215,6 +220,7 @@ initFailed:
 				}
 				else
 				{
+					as_release(preloadCache);
 					preloadCache = nil;
 				}
 			}
@@ -279,7 +285,7 @@ initFailed:
 
 - (void) setBgVolume:(float) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		backgroundTrack.gain = value;
 	}
@@ -302,7 +308,7 @@ initFailed:
 
 - (void) setEffectsVolume:(float) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		[OpenALManager sharedInstance].currentContext.listener.gain = value;
 	}
@@ -310,7 +316,7 @@ initFailed:
 
 - (bool) paused
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return self.effectsPaused && self.bgPaused;
 	}
@@ -318,7 +324,7 @@ initFailed:
 
 - (void) setPaused:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		self.effectsPaused = self.bgPaused = value;
 	}
@@ -341,7 +347,7 @@ initFailed:
 
 - (void) setBgMuted:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		bgMuted = value;
 		backgroundTrack.muted = bgMuted | muted;
@@ -355,7 +361,7 @@ initFailed:
 
 - (void) setEffectsMuted:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		effectsMuted = value;
 		[OpenALManager sharedInstance].currentContext.listener.muted = effectsMuted | muted;
@@ -369,7 +375,7 @@ initFailed:
 
 - (void) setMuted:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		muted = value;
 		backgroundTrack.muted = bgMuted | muted;
@@ -424,7 +430,7 @@ initFailed:
 		   loop:(bool) loop
 {
 	OAL_LOG_DEBUG(@"Play bg with vol %f, pan %f, loop %d, file %@", volume, pan, loop, filePath);
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		backgroundTrack.gain = volume;
 		backgroundTrack.pan = pan;
@@ -439,7 +445,7 @@ initFailed:
 
 - (bool) playBgWithLoop:(bool) loop
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		OAL_LOG_DEBUG(@"Play bg, loop %d", loop);
 		backgroundTrack.numberOfLoops = loop ? -1 : 0;
@@ -470,7 +476,7 @@ initFailed:
 {
 	ALBuffer* buffer;
     NSString* cacheKey = [self cacheKeyForEffectPath:filePath];
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		buffer = [preloadCache objectForKey:cacheKey];
 	}
@@ -485,7 +491,7 @@ initFailed:
 		}
 
         buffer.name = cacheKey;
-		@synchronized(self)
+		OPTIONALLY_SYNCHRONIZED(self)
 		{
 			[preloadCache setObject:buffer forKey:cacheKey];
 		}
@@ -512,6 +518,7 @@ initFailed:
         OAL_LOG_WARNING(@"You are loading an effect synchronously, but have pending async loads that have not completed. Your load will happen after those finish. Your thread is now stuck waiting. Next time just load everything async please.");
     }
 
+#if NS_BLOCKS_AVAILABLE && OBJECTAL_CFG_USE_BLOCKS
 	//Using blocks with the same queue used to asynch load removes the need for locking
 	//BUT be warned that if you had called preloadEffects and then called this method, your app will stall until all of the loading is done.
 	//It is advised you just always use async loading
@@ -523,7 +530,12 @@ initFailed:
                   });
 	pendingLoadCount--;
 	return retBuffer;
+#else
+	return [self internalPreloadEffect:filePath reduceToMono:reduceToMono];
+#endif
 }
+
+#if NS_BLOCKS_AVAILABLE && OBJECTAL_CFG_USE_BLOCKS
 
 - (BOOL) preloadEffect:(NSString*) filePath
           reduceToMono:(bool) reduceToMono
@@ -572,8 +584,9 @@ initFailed:
 	pendingLoadCount += total;
 	dispatch_async(oal_dispatch_queue,
                    ^{
-                       [filePaths enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, __unused BOOL *stop)
+                       [filePaths enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop)
                         {
+                            #pragma unused(stop)
                             OAL_LOG_INFO(@"Preloading effect: %@", obj);
                             ALBuffer *result = [self internalPreloadEffect:(NSString *)obj reduceToMono:reduceToMono];
                             if(!result)
@@ -596,6 +609,7 @@ initFailed:
                         }];
                    });
 }
+#endif
 
 - (bool) unloadEffect:(NSString*) filePath
 {
@@ -607,7 +621,7 @@ initFailed:
     NSString* cacheKey = [self cacheKeyForEffectPath:filePath];
 	OAL_LOG_DEBUG(@"Remove effect from cache: %@", filePath);
     bool isSuccess = YES;
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         isSuccess = [channel removeBuffersNamed:cacheKey];
         if(isSuccess)
@@ -625,7 +639,7 @@ initFailed:
 - (void) unloadAllEffects
 {
     OAL_LOG_DEBUG(@"Remove all effects from cache");
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
         for(ALBuffer* buffer in [channel clearUnusedBuffers])
         {

@@ -28,6 +28,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "SynthesizeSingleton.h"
 #import "OALAction.h"
 #import "ObjectALConfig.h"
 
@@ -65,7 +66,12 @@
 
 #pragma mark Object Management
 
-+ (OALActionManager*)sharedInstance;
+/** Singleton implementation providing "sharedInstance" and "purgeSharedInstance" methods.
+ *
+ * <b>- (OALAudioSupport*) sharedInstance</b>: Get the shared singleton instance. <br>
+ * <b>- (void) purgeSharedInstance</b>: Purge (deallocate) the shared instance.
+ */
+SYNTHESIZE_SINGLETON_FOR_CLASS_HEADER(OALActionManager);
 
 
 #pragma mark Action Management

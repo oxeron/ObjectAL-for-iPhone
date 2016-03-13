@@ -64,6 +64,23 @@
 
 
 #pragma mark -
+#pragma mark ARC
+
+#pragma mark -
+#pragma mark Synchronization
+
+#if OBJECTAL_CFG_SYNCHRONIZED_OPERATIONS
+
+#define OPTIONALLY_SYNCHRONIZED(A) @synchronized(A)
+
+#else
+
+#define OPTIONALLY_SYNCHRONIZED(A)
+
+#endif /* OBJECTAL_CFG_SYNCHRONIZED_OPERATIONS */
+
+
+#pragma mark -
 #pragma mark Logging
 
 
@@ -138,6 +155,18 @@
 
 #pragma mark -
 #pragma mark Special Purpose Logging
+
+/** Report on the specified AudioSession error code, logging an error if the code does not indicate success.
+ *
+ * @param ERROR_CODE The error code.
+ * @param FMT Message with NSLog() style formatting.
+ * @param ... Arguments
+ */
+#define REPORT_AUDIOSESSION_CALL(ERROR_CODE, FMT, ...) \
+if(noErr != (ERROR_CODE)) \
+{ \
+	[OALTools notifyAudioSessionError:(ERROR_CODE) function:__PRETTY_FUNCTION__ description:(FMT), ##__VA_ARGS__]; \
+}
 
 
 #if OBJECTAL_CFG_LOG_LEVEL > 0

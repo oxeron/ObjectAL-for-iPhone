@@ -30,6 +30,7 @@
 #import "ALContext.h"
 #import "NSMutableArray+WeakReferences.h"
 #import "ObjectALMacros.h"
+#import "ARCSafe_MemMgmt.h"
 #import "ALWrapper.h"
 #import "OpenALManager.h"
 #import "ALDevice.h"
@@ -68,7 +69,7 @@
 
 + (id) contextOnDevice:(ALDevice *) device attributes:(NSArray*) attributes
 {
-	return [[self alloc] initOnDevice:device attributes:attributes];
+	return as_autorelease([[self alloc] initOnDevice:device attributes:attributes]);
 }
 
 + (id) contextOnDevice:(ALDevice*) device
@@ -150,7 +151,7 @@
 		if(nil == deviceIn)
 		{
 			OAL_LOG_ERROR(@"%@: Could not init context: Device is nil", self);
-            return nil;
+            goto initFailed;
 		}
 
 		suspendHandler = [[OALSuspendHandler alloc] initWithTarget:self selector:@selector(setSuspended:)];
@@ -169,7 +170,7 @@
 		}
 		
 		// Notify the device that we are being created.
-		device = deviceIn;
+		device = as_retain(deviceIn);
 		[device notifyContextInitializing:self];
 
 		// Open the context with our list of attributes.
@@ -177,7 +178,7 @@
         if(context == nil)
         {
             OAL_LOG_ERROR(@"%@: Failed to create OpenAL context", self);
-            return nil;
+            goto initFailed;
         }
 		
 		listener = [[ALListener alloc] initWithContext:self];
@@ -216,6 +217,10 @@
 		[device addSuspendListener:self];
 	}
 	return self;
+
+initFailed:
+    as_release(self);
+    return nil;
 }
 
 - (void) dealloc
@@ -231,6 +236,13 @@
         [OpenALManager sharedInstance].currentContext = nil;
     }
     [ALWrapper destroyContext:context];
+
+	as_release(sources);
+	as_release(listener);
+	as_release(device);
+	as_release(attributes);
+	as_release(suspendHandler);
+	as_superdealloc();
 }
 
 
@@ -244,7 +256,7 @@
 
 - (ALenum) distanceModel
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return [ALWrapper getInteger:AL_DISTANCE_MODEL];
 	}
@@ -252,7 +264,7 @@
 
 - (void) setDistanceModel:(ALenum) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -266,7 +278,7 @@
 
 - (float) dopplerFactor
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return [ALWrapper getFloat:AL_DOPPLER_FACTOR];
 	}
@@ -274,7 +286,7 @@
 
 - (void) setDopplerFactor:(float) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -303,7 +315,7 @@
 
 - (float) speedOfSound
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		return [ALWrapper getFloat:AL_SPEED_OF_SOUND];
 	}
@@ -311,7 +323,7 @@
 
 - (void) setSpeedOfSound:(float) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(self.suspended)
 		{
@@ -383,7 +395,7 @@
 
 - (void) clearBuffers
 {
-	@synchronized(sources)
+	OPTIONALLY_SYNCHRONIZED(sources)
 	{
 		for(ALSource* source in sources)
 		{
@@ -405,7 +417,7 @@
 
 - (void) stopAllSounds
 {
-	@synchronized(sources)
+	OPTIONALLY_SYNCHRONIZED(sources)
 	{
 		if(self.suspended)
 		{
@@ -451,7 +463,7 @@
 
 - (void) notifySourceInitializing:(ALSource*) source
 {
-	@synchronized(sources)
+	OPTIONALLY_SYNCHRONIZED(sources)
 	{
 		[sources addObject:source];
 	}
@@ -459,7 +471,7 @@
 
 - (void) notifySourceDeallocating:(ALSource*) source
 {
-	@synchronized(sources)
+	OPTIONALLY_SYNCHRONIZED(sources)
 	{
 		[sources removeObject:source];
 	}

@@ -30,7 +30,9 @@
 #import "OALAudioSession.h"
 #import <AudioToolbox/AudioToolbox.h>
 #import "ObjectALMacros.h"
+#import "ARCSafe_MemMgmt.h"
 #import "OALNotifications.h"
+#import "IOSVersion.h"
 
 
 #define kMaxSessionActivationRetries 40
@@ -39,12 +41,55 @@
 #pragma mark -
 #pragma mark Private Methods
 
+SYNTHESIZE_SINGLETON_FOR_CLASS_PROTOTYPE(OALAudioSession);
+
+
+#if defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && !defined(__TV_OS_VERSION_MIN_REQUIRED)
 
 /** \cond */
 /**
  * (INTERNAL USE) Private methods for OALAudioSupport. 
  */
 @interface OALAudioSession (Private)
+
+/** (INTERNAL USE) Get an AudioSession property.
+ *
+ * @param property The property to get.
+ * @return The property's value.
+ */
+- (UInt32) getIntProperty:(AudioSessionPropertyID) property;
+
+/** (INTERNAL USE) Get an AudioSession property.
+ *
+ * @param property The property to get.
+ * @return The property's value.
+ */
+- (Float32) getFloatProperty:(AudioSessionPropertyID) property;
+
+/** (INTERNAL USE) Get an AudioSession property.
+ *
+ * @param property The property to get.
+ * @return The property's value.
+ */
+- (NSString*) getStringProperty:(AudioSessionPropertyID) property;
+
+/** (INTERNAL USE) Set an AudioSession property.
+ *
+ * @param property The property to set.
+ * @param value The value to set this property to.
+ */
+- (void) setIntProperty:(AudioSessionPropertyID) property value:(UInt32) value;
+
+/** (INTERNAL USE) Set an AudioSession property.
+ *
+ * @param property The property to set.
+ * @param value The value to set this property to.
+ */
+- (void) setFloatProperty:(AudioSessionPropertyID) property value:(Float32) value;
+
+/** (INTERNAL USE) Set the Audio Session category and properties based on current settings.
+ */
+- (void) setAudioMode;
 
 /** (INTERNAL USE) Update settings to be compatible with the current audio session category.
  */
@@ -71,14 +116,7 @@
 
 #pragma mark Object Management
 
-+ (OALAudioSession*)sharedInstance {
-    static OALAudioSession *shared = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        shared = [[self alloc] init];
-    });
-    return shared;
-}
+SYNTHESIZE_SINGLETON_FOR_CLASS(OALAudioSession);
 
 - (id) init
 {
@@ -86,9 +124,29 @@
 	{
 		OAL_LOG_DEBUG(@"%@: Init", self);
 
+        float osVersion = [IOSVersion sharedInstance].version;
+
 		suspendHandler = [[OALSuspendHandler alloc] initWithTarget:self selector:@selector(setSuspended:)];
 
+#if __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_6_0
+        if(osVersion < 6.0f)
+        {
+            OAL_LOG_DEBUG(@"Setting up AVAudioSession delegate");
+            [(AVAudioSession*)[AVAudioSession sharedInstance] setDelegate:self];
+        }
+#endif // __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_6_0
+
+        if(osVersion >= 6.0f)
+        {
+            OAL_LOG_DEBUG(@"Adding notification observer for AVAudioSessionInterruptionNotification");
+            [[NSNotificationCenter defaultCenter] addObserver:self
+                                                     selector:@selector(handleInterruption:)
+                                                         name:@"AVAudioSessionInterruptionNotification"
+                                                       object:[AVAudioSession sharedInstance]];
+        }
+
 		// Set up defaults
+		handleInterruptions = YES;
 		allowIpod = YES;
 		ipodDucking = NO;
 		useHardwareIfAvailable = YES;
@@ -114,13 +172,17 @@
 
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 
-#if defined(__IPHONE_OS_VERSION_MAX_ALLOWED)
-    NSError* error = nil;
+    NSError* error;
     if(![[AVAudioSession sharedInstance] setActive:NO error:&error])
     {
         OAL_LOG_ERROR(@"Could not deactivate audio session: %@", error);
     }
-#endif
+	
+	[[NSNotificationCenter defaultCenter] removeObserver:self];
+	as_release(lastResetTime);	
+	as_release(audioSessionCategory);
+	as_release(suspendHandler);
+	as_superdealloc();
 }
 
 
@@ -133,9 +195,10 @@
 
 - (void) setAudioSessionCategory:(NSString*) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
-		audioSessionCategory = value;
+        as_autorelease_noref(audioSessionCategory);
+		audioSessionCategory = as_retain(value);
 		[self updateFromAudioSessionCategory];
 		[self setAudioMode];
 	}	
@@ -148,7 +211,7 @@
 
 - (void) setAllowIpod:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		allowIpod = value;
 		[self updateFromFlags];
@@ -163,7 +226,7 @@
 
 - (void) setIpodDucking:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		ipodDucking = value;
 		[self updateFromFlags];
@@ -178,13 +241,16 @@
 
 - (void) setUseHardwareIfAvailable:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		useHardwareIfAvailable = value;
 		[self updateFromFlags];
 		[self setAudioMode];
 	}
 }
+
+@synthesize handleInterruptions;
+@synthesize audioSessionDelegate;
 
 - (bool) honorSilentSwitch
 {
@@ -193,7 +259,7 @@
 
 - (void) setHonorSilentSwitch:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		honorSilentSwitch = value;
 		[self updateFromFlags];
@@ -201,23 +267,139 @@
 	}
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
+
+- (float) preferredIOBufferDuration
+{
+    return [self getFloatProperty:kAudioSessionProperty_PreferredHardwareIOBufferDuration];
+}
+
+- (void) setPreferredIOBufferDuration:(float)value
+{
+    [self setFloatProperty:kAudioSessionProperty_PreferredHardwareIOBufferDuration
+                     value:value];
+}
+
+- (bool) ipodPlaying
+{
+	return 0 != [self getIntProperty:kAudioSessionProperty_OtherAudioIsPlaying];
+}
+
+- (NSString*) audioRoute
+{
+#if !TARGET_IPHONE_SIMULATOR
+	return [self getStringProperty:kAudioSessionProperty_AudioRoute];
+#else /* !TARGET_IPHONE_SIMULATOR */
+	return nil;
+#endif /* !TARGET_IPHONE_SIMULATOR */
+}
+
+- (float) hardwareVolume
+{
+	return [self getFloatProperty:kAudioSessionProperty_CurrentHardwareOutputVolume];
+}
+
+- (bool) hardwareMuted
+{
+	return [[self audioRoute] isEqualToString:@""];
+}
+
+#pragma clang diagnostic pop // "-Wdeprecated-implementations"
+
+
 
 #pragma mark Internal Use
 
-#if defined(__IPHONE_OS_VERSION_MAX_ALLOWED)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
+- (UInt32) getIntProperty:(AudioSessionPropertyID) property
+{
+	UInt32 value = 0;
+	UInt32 size = sizeof(value);
+	OSStatus result;
+	OPTIONALLY_SYNCHRONIZED(self)
+	{
+		result = AudioSessionGetProperty(property, &size, &value);
+	}
+	REPORT_AUDIOSESSION_CALL(result, @"Failed to get int property %08x", property);
+	return value;
+}
+
+- (Float32) getFloatProperty:(AudioSessionPropertyID) property
+{
+	Float32 value = 0;
+	UInt32 size = sizeof(value);
+	OSStatus result;
+	OPTIONALLY_SYNCHRONIZED(self)
+	{
+		result = AudioSessionGetProperty(property, &size, &value);
+	}
+	REPORT_AUDIOSESSION_CALL(result, @"Failed to get float property %08x", property);
+	return value;
+}
+
+- (NSString*) getStringProperty:(AudioSessionPropertyID) property
+{
+	CFStringRef value;
+	UInt32 size = sizeof(value);
+	OSStatus result;
+	OPTIONALLY_SYNCHRONIZED(self)
+	{
+		result = AudioSessionGetProperty(property, &size, &value);
+	}
+	REPORT_AUDIOSESSION_CALL(result, @"Failed to get string property %08x", property);
+	if(noErr == result)
+	{
+        NSString* stringResult = (as_bridge_transfer NSString*) value;
+		return as_autorelease(stringResult);
+	}
+	return nil;
+}
+
+- (void) setIntProperty:(AudioSessionPropertyID) property value:(UInt32) value
+{
+	OSStatus result;
+	OPTIONALLY_SYNCHRONIZED(self)
+	{
+		result = AudioSessionSetProperty(property, sizeof(value), &value);
+	}
+	REPORT_AUDIOSESSION_CALL(result, @"Failed to get int property %08x", property);
+}
+
+- (void) setFloatProperty:(AudioSessionPropertyID) property value:(Float32) value
+{
+	OSStatus result;
+	OPTIONALLY_SYNCHRONIZED(self)
+	{
+		result = AudioSessionSetProperty(property, sizeof(value), &value);
+	}
+	REPORT_AUDIOSESSION_CALL(result, @"Failed to get int property %08x", property);
+}
+
+- (BOOL) _otherAudioPlaying
+{
+    if([IOSVersion sharedInstance].version < 6)
+    {
+        return self.ipodPlaying;
+    }
+    return ((AVAudioSession*)[AVAudioSession sharedInstance]).otherAudioPlaying;
+}
+
+#pragma clang diagnostic pop // "-Wdeprecated-declarations"
+
 - (void) setAudioCategory:(NSString*) audioCategory
 {
-	NSError* error = nil;
+	NSError* error;
 	if(![[AVAudioSession sharedInstance] setCategory:audioCategory error:&error])
 	{
 		OAL_LOG_ERROR(@"Failed to set audio category: %@", error);
 	}
 }
-#endif
 
 - (void) updateFromAudioSessionCategory
 {
-#if defined(__IPHONE_OS_VERSION_MAX_ALLOWED)
 	if([AVAudioSessionCategoryAmbient isEqualToString:audioSessionCategory])
 	{
 		honorSilentSwitch = YES;
@@ -244,38 +426,45 @@
 		allowIpod = NO;
 		ipodDucking = NO;
 	}
+#if __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_3_1
+	else if([AVAudioSessionCategoryAudioProcessing isEqualToString:audioSessionCategory])
+	{
+		honorSilentSwitch = NO;
+		allowIpod = NO;
+		ipodDucking = NO;
+	}
+#endif /* __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_3_1 */
 	else
 	{
 		OAL_LOG_WARNING(@"%@: Unrecognized audio session category", audioSessionCategory);
 	}
-#endif
+	
 }
 
 - (void) updateFromFlags
 {
-#if defined(__IPHONE_OS_VERSION_MAX_ALLOWED)
+	as_release(audioSessionCategory);
 	if(honorSilentSwitch)
 	{
 		if(allowIpod)
 		{
-			audioSessionCategory = AVAudioSessionCategoryAmbient;
+			audioSessionCategory = as_retain(AVAudioSessionCategoryAmbient);
 		}
 		else
 		{
-			audioSessionCategory = AVAudioSessionCategorySoloAmbient;
+			audioSessionCategory = as_retain(AVAudioSessionCategorySoloAmbient);
 		}
 	}
 	else
 	{
-		audioSessionCategory = AVAudioSessionCategoryPlayback;
+		audioSessionCategory = as_retain(AVAudioSessionCategoryPlayback);
 	}
-#endif
 }
 
 - (void) setAudioMode
 {
 	// Simulator doesn't support setting the audio session category.
-#if !TARGET_IPHONE_SIMULATOR && defined(__IPHONE_OS_VERSION_MAX_ALLOWED)
+#if !TARGET_IPHONE_SIMULATOR
 	
 	NSString* actualCategory = audioSessionCategory;
 	
@@ -286,7 +475,7 @@
 	bool ducking = ipodDucking;
 	
 	// If the hardware is available and we want it, take it.
-	if(mixing && useHardwareIfAvailable && ![AVAudioSession sharedInstance].otherAudioPlaying)
+	if(mixing && useHardwareIfAvailable && !self._otherAudioPlaying)
 	{
 		mixing = NO;
 	}
@@ -324,7 +513,6 @@
  */ 
 - (void) activateAudioSession
 {
-#if defined(__IPHONE_OS_VERSION_MAX_ALLOWED)
 	NSError* error;
 	for(int try = 1; try <= kMaxSessionActivationRetries; try++)
 	{
@@ -337,12 +525,11 @@
 		[NSThread sleepForTimeInterval:0.2];
 	}
 	OAL_LOG_ERROR(@"Failed to activate the audio session");
-#endif
 }
 
 - (void) setAudioSessionActive:(bool) value
 {
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		if(value != audioSessionActive)
 		{
@@ -355,7 +542,6 @@
 			else
 			{
 				OAL_LOG_DEBUG(@"Deactivate audio session");
-#if defined(__IPHONE_OS_VERSION_MAX_ALLOWED)
 				NSError* error;
 				if(![[AVAudioSession sharedInstance] setActive:NO error:&error])
 				{
@@ -365,14 +551,16 @@
 				{
 					audioSessionActive = NO;
 				}
-#endif
+				
 			}
 		}
 	}
 }
 
-- (void) onAudioError:(__unused NSNotification*) notification
+- (void) onAudioError:(NSNotification*) notification
 {
+    #pragma unused(notification)
+
 #if OBJECTAL_CFG_RESET_AUDIO_SESSION_ON_ERROR
 	if(self.suspended)
 	{
@@ -380,7 +568,7 @@
 		return;
 	}
 
-	@synchronized(self)
+	OPTIONALLY_SYNCHRONIZED(self)
 	{
 		NSTimeInterval timeSinceLastReset = [[NSDate date] timeIntervalSinceDate:lastResetTime];
 		if(timeSinceLastReset > kMinTimeIntervalBetweenResets && !handlingErrorNotification)
@@ -390,6 +578,7 @@
 			OAL_LOG_WARNING(@"Received audio error notification. Resetting audio session.");
 			self.manuallySuspended = YES;
 			self.manuallySuspended = NO;
+			as_release(lastResetTime);
 			lastResetTime = [[NSDate alloc] init];
 		
             handlingErrorNotification = FALSE;
@@ -459,4 +648,236 @@
 	}
 }
 
+
+#pragma mark Interrupt Handling
+
+// iOS 6.0+ interrupt handling
+- (void) handleInterruption:(NSNotification*) notification
+{
+    NSUInteger type = [[notification.userInfo objectForKey:@"AVAudioSessionInterruptionTypeKey"] unsignedIntegerValue];
+    OAL_LOG_DEBUG(@"iOS 6+ interrupt type %d", type);
+    switch(type)
+    {
+        case AVAudioSessionInterruptionTypeBegan:
+            [self beginInterruption];
+            break;
+        case AVAudioSessionInterruptionTypeEnded:
+        {
+            NSUInteger options = [[notification.userInfo objectForKey:@"AVAudioSessionInterruptionOptionKey"] unsignedIntegerValue];
+            [self endInterruptionWithFlags:options];
+            break;
+        }
+    }
+}
+
+
+// AVAudioSessionDelegate
+- (void) beginInterruption
+{
+	OAL_LOG_DEBUG(@"Received interrupt from system.");
+	@synchronized(self)
+	{
+		if(handleInterruptions)
+		{
+			self.interrupted = YES;
+		}
+		
+		if([audioSessionDelegate respondsToSelector:@selector(beginInterruption)])
+		{
+			[audioSessionDelegate beginInterruption];
+		}
+	}
+}
+
+- (void) endInterruption
+{
+	OAL_LOG_DEBUG(@"Received end interrupt from system.");
+	@synchronized(self)
+	{
+		bool informDelegate = YES;
+
+		if(handleInterruptions)
+		{
+			informDelegate = self.interrupted;
+			self.interrupted = NO;
+		}
+		
+		if(informDelegate)
+		{
+			if([audioSessionDelegate respondsToSelector:@selector(endInterruption)])
+			{
+				[audioSessionDelegate endInterruption];
+			}
+		}
+	}
+}
+
+- (void)endInterruptionWithFlags:(NSUInteger)flags
+{
+	OAL_LOG_DEBUG(@"Received end interrupt with flags 0x%08x from system.", flags);
+	@synchronized(self)
+	{
+		bool informDelegate = YES;
+		
+		if(handleInterruptions)
+		{
+			informDelegate = self.interrupted;
+			self.interrupted = NO;
+		}
+		
+		if(informDelegate)
+		{
+			if([audioSessionDelegate respondsToSelector:@selector(endInterruptionWithFlags:)])
+			{
+				[audioSessionDelegate endInterruptionWithFlags:flags];
+			}
+			else if([audioSessionDelegate respondsToSelector:@selector(endInterruption)])
+			{
+				[audioSessionDelegate endInterruption];
+			}
+		}
+	}
+}
+
+- (void) forceEndInterruption
+{
+	@synchronized(self)
+	{
+		bool informDelegate = YES;
+		
+		if(handleInterruptions)
+		{
+			informDelegate = self.interrupted;
+			self.interrupted = NO;
+		}
+		
+		if(informDelegate)
+		{
+			if([audioSessionDelegate respondsToSelector:@selector(endInterruption)])
+			{
+				[audioSessionDelegate endInterruption];
+			}
+		}
+	}
+}
+
+- (void)inputIsAvailableChanged:(BOOL)isInputAvailable
+{
+	if([audioSessionDelegate respondsToSelector:@selector(inputIsAvailableChanged:)])
+	{
+		[audioSessionDelegate inputIsAvailableChanged:isInputAvailable];
+	}
+}
+
+
 @end
+
+#else
+
+@implementation OALAudioSession
+
+#pragma mark Object Management
+
+SYNTHESIZE_SINGLETON_FOR_CLASS(OALAudioSession);
+
+- (id) init
+{
+	if(nil != (self = [super init]))
+	{
+		suspendHandler = [[OALSuspendHandler alloc] initWithTarget:self selector:@selector(setSuspended:)];
+
+		// Set up defaults
+		handleInterruptions = NO;
+		allowIpod = NO;
+		ipodDucking = NO;
+		useHardwareIfAvailable = YES;
+		honorSilentSwitch = NO;
+
+		self.audioSessionActive = YES;
+	}
+	return self;
+}
+
+- (void) dealloc
+{
+	as_release(lastResetTime);
+	as_release(audioSessionCategory);
+	as_release(suspendHandler);
+	as_superdealloc();
+}
+
+#pragma mark Properties
+
+@synthesize audioSessionCategory;
+@synthesize audioSessionActive;
+@synthesize allowIpod;
+@synthesize ipodDucking;
+@synthesize useHardwareIfAvailable;
+@synthesize handleInterruptions;
+@synthesize honorSilentSwitch;
+@synthesize preferredIOBufferDuration;
+@synthesize ipodPlaying;
+@synthesize audioRoute;
+@synthesize hardwareVolume;
+@synthesize hardwareMuted;
+
+#pragma mark Suspend Handler
+
+- (void) addSuspendListener:(id<OALSuspendListener>) listener
+{
+	[suspendHandler addSuspendListener:listener];
+}
+
+- (void) removeSuspendListener:(id<OALSuspendListener>) listener
+{
+	[suspendHandler removeSuspendListener:listener];
+}
+
+- (bool) manuallySuspended
+{
+	return suspendHandler.manuallySuspended;
+}
+
+- (void) setManuallySuspended:(bool) value
+{
+	suspendHandler.manuallySuspended = value;
+}
+
+- (bool) interrupted
+{
+    return false;
+}
+
+- (void) setInterrupted:(__unused bool) value
+{
+}
+
+- (bool) suspended
+{
+	return suspendHandler.suspended;
+}
+
+- (void) setSuspended:(bool) value
+{
+	OAL_LOG_DEBUG(@"setSuspended %d", value);
+	if(value)
+	{
+		audioSessionWasActive = self.audioSessionActive;
+		self.audioSessionActive = NO;
+	}
+	else
+	{
+		if(audioSessionWasActive)
+		{
+			self.audioSessionActive = YES;
+		}
+	}
+}
+
+- (void) forceEndInterruption
+{
+}
+
+@end
+
+#endif

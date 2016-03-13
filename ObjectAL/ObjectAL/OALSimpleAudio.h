@@ -28,6 +28,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "SynthesizeSingleton.h"
 #import "ALDevice.h"
 #import "ALContext.h"
 #import "ALSoundSource.h"
@@ -69,11 +70,13 @@
 	ALChannelSource* channel;
 	/** Cache for preloaded sound samples. */
 	NSMutableDictionary* preloadCache;
+#if NS_BLOCKS_AVAILABLE && OBJECTAL_CFG_USE_BLOCKS
 	/** Queue for preloading and async operations that use blocks.
 	 * This ensures all operations are safe because they are guaranteed to run
 	 * in order.
 	 */
 	dispatch_queue_t oal_dispatch_queue;
+#endif
 	/** keeping track of how many effects remain to be loaded */
 	uint pendingLoadCount;
 	
@@ -199,7 +202,12 @@
 
 #pragma mark Object Management
 
-+ (OALSimpleAudio*)sharedInstance;
+/** Singleton implementation providing "sharedInstance" and "purgeSharedInstance" methods.
+ *
+ * <b>- (OALSimpleAudio*) sharedInstance</b>: Get the shared singleton instance. <br>
+ * <b>- (void) purgeSharedInstance</b>: Purge (deallocate) the shared instance. <br>
+ */
+SYNTHESIZE_SINGLETON_FOR_CLASS_HEADER(OALSimpleAudio);
 
 /** Start OALSimpleAudio with the specified number of reserved sources.
  * Call this initializer if you want to use OALSimpleAudio, but keep some of the device's
@@ -374,6 +382,8 @@
  */
 - (ALBuffer*) preloadEffect:(NSString*) filePath reduceToMono:(bool) reduceToMono;
 
+#if NS_BLOCKS_AVAILABLE && OBJECTAL_CFG_USE_BLOCKS
+
 /** Asynchronous preload and cache sound effect for later playback.
  *
  * @param filePath an NSString with the path containing the sound data.
@@ -395,6 +405,8 @@
 - (void) preloadEffects:(NSArray*) filePaths
 				   reduceToMono:(bool) reduceToMono
 		  progressBlock:(void (^)(NSUInteger progress, NSUInteger successCount, NSUInteger total)) progressBlock;
+
+#endif
 
 /** Unload a preloaded effect. Only unloads if no source is currently playing
  * that effect (or paused with the effect loaded).
