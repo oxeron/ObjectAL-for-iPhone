@@ -32,7 +32,7 @@
 #import "ARCSafe_MemMgmt.h"
 #import "OALNotifications.h"
 #import <AudioToolbox/AudioToolbox.h>
-
+#import "CCFileUtils.h"
 
 @implementation OALTools
 
@@ -61,6 +61,7 @@ static NSBundle* g_defaultBundle;
 
 + (NSURL*) urlForPath:(NSString*) path bundle:(NSBundle*) bundle
 {
+#pragma unused(bundle)
 	if(nil == path)
 	{
 		return nil;
@@ -68,7 +69,7 @@ static NSBundle* g_defaultBundle;
 	NSString* fullPath = path;
 	if([fullPath characterAtIndex:0] != '/')
 	{
-		fullPath = [bundle pathForResource:path ofType:nil];
+		fullPath = [[CCFileUtils sharedFileUtils] fullPathForFilenameIgnoringResolutions:path];
 		if(nil == fullPath)
 		{
 			OAL_LOG_ERROR(@"Could not find full path of file %@", path);
